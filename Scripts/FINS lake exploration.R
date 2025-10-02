@@ -34,7 +34,7 @@ fish <- read.csv("../../3_FW_survey/NS fishes docs/FINS/FINS 2025-06-05_SBmodifi
 library(dplyr)
 
 # some lakes have multiple entries from resampling -- keep all of these
-lake_fish <- fish %>%
+smalllake_fish <- fish %>%
   left_join(
     smalllakes %>%
       select(County, Site.Code, Name, Primary.Watershed, Secondary.Watershed,
@@ -45,9 +45,30 @@ lake_fish <- fish %>%
     relationship = "many-to-many"
   )
 
+# save as .csv
+write.csv(smalllake_fish, "Analysis/Small_lakes_fish_detected.csv", row.names = FALSE)
 
 
+################################################################################
+# Oct 1, 2025 -- will assess lakes in opposite order as before
 
+# Invasion status first, then down the line filter by lake size
+# still need to combine the different sheets of the FINS file
+# some lakes have multiple entries from resampling -- keep all of these
+lake_fish <- fish %>%
+  left_join(
+    lakes %>%
+      select(County, Site.Code, Name, Primary.Watershed, Secondary.Watershed,
+             Watershed.Code, Assessment.Date, Surface.Area..ha.),
+    by = c("County", "Site.Code", "Name",
+           "Primary.Watershed", "Secondary.Watershed", "Watershed.Code",
+           "Captured.Date" = "Assessment.Date"),
+    relationship = "many-to-many"
+  )
 
+ais_lakes <- subset(lake_fish, Species.Name == "Smallmouth Bass" | Species.Name == "Chain Pickerel")
+
+# save as .csv
+write.csv(ais_lakes, "Analysis/AIS_lakes.csv", row.names = FALSE)
 
 
