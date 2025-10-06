@@ -20,9 +20,16 @@
 #NOTE this path will need to be updated once I finish cleaning up my files
 lakes <- read.csv("../../3_FW_survey/NS fishes docs/FINS/FINS 2025-06-05_SBmodified_lakesize.csv", header = TRUE)
 
+# explore number of unique lakes
+library(dplyr)
+unique_lake_count <- lakes %>%
+  distinct(County, Site.Code, Name, Watershed.Code) %>%  # keep unique combinations
+  nrow()  # count them
 
-# subset lakes that are ≤ 100 ha
-smalllakes <- subset(lakes, Surface.Area..ha.<= 100)
+# number of unique lakes <-≤ 100 ha
+unique_lakes_under_100 <- lakes %>%
+  filter(Surface.Area..ha. < 100) %>%
+  distinct(County, Site.Code, Name, Watershed.Code)
 
 
 # read in fish data - NOTE this path will need to be updated once I finish cleaning up my files
@@ -32,25 +39,6 @@ fish <- read.csv("../../3_FW_survey/NS fishes docs/FINS/FINS 2025-06-05_SBmodifi
 ################################################################################
 # Add lake size and species info into a new df
 library(dplyr)
-
-# some lakes have multiple entries from resampling -- keep all of these
-smalllake_fish <- fish %>%
-  left_join(
-    smalllakes %>%
-      select(County, Site.Code, Name, Primary.Watershed, Secondary.Watershed,
-             Watershed.Code, Assessment.Date, Surface.Area..ha.),
-    by = c("County", "Site.Code", "Name",
-           "Primary.Watershed", "Secondary.Watershed", "Watershed.Code",
-           "Captured.Date" = "Assessment.Date"),
-    relationship = "many-to-many"
-  )
-
-# save as .csv
-write.csv(smalllake_fish, "Analysis/Small_lakes_fish_detected.csv", row.names = FALSE)
-
-
-################################################################################
-# Oct 1, 2025 -- will assess lakes in opposite order as before
 
 # Invasion status first, then down the line filter by lake size
 # still need to combine the different sheets of the FINS file
@@ -66,9 +54,42 @@ lake_fish <- fish %>%
     relationship = "many-to-many"
   )
 
-ais_lakes <- subset(lake_fish, Species.Name == "Smallmouth Bass" | Species.Name == "Chain Pickerel")
 
-# save as .csv
-write.csv(ais_lakes, "Analysis/AIS_lakes.csv", row.names = FALSE)
+# reformat capture date into individual components
+lake_fish <- lake_fish %>%
+  mutate(
+    Date = as.Date(Captured.Date, format = "%d %b %Y"),
+    Year = as.numeric(format(Date, "%Y"))
+  )
+
+# Rearrange
+lake_fish <- lake_fish %>%
+  relocate(Date, Year, .after = Captured.Date)
+
+# Summarize first detection per watershed, not per lake
+library(tidyr)
+
+# 1. Calculate first detection per watershed
+ais_watershed_intro <- lake_fish %>%
+  filter(Species.Name %in% c("Smallmouth Bass", "Chain Pickerel")) %>%
+  group_by(Primary.Watershed, Species.Name) %>%
+  summarise(First_Year = min(Year, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = Species.Name,
+              values_from = First_Year,
+              names_prefix = "First_Year_")
+
+
+# Join this back lake_fish dataset
+watersheds_invaded <- lake_fish %>%
+  left_join(ais_watershed_intro, by = "Primary.Watershed")
+
+# omit unneeded columns
+watersheds_invaded_clean <- watersheds_invaded[, !(names(watersheds_invaded) %in% c("Captured.By","Notes", "Origin",
+                                                                                    "Effort","Effort.Unit","Number.Caught",
+                                                                                    "Catch.Unit.Effort","Average.Length..cm.",
+                                                                                    "Average.Weight..g.","Historical"))]
+
+# save
+write.csv(watersheds_invaded_clean, "Analysis/AIS_lakes.csv", row.names = FALSE)
 
 
