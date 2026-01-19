@@ -47,6 +47,10 @@ ais_latlong <- ais_latlong %>%
 ais_latlong <- ais_latlong %>%
   mutate(Decade = factor(Decade, levels = sort(unique(Decade))))
 
+# Move decade column
+ais_latlong <- ais_latlong %>%
+  relocate(Decade_num, Decade, .after = Year)
+
 # Split by species
 bass_sf <- ais_latlong %>% filter(Species.Name == "Smallmouth Bass")
 pickerel_sf <- ais_latlong %>% filter(Species.Name == "Chain Pickerel")
@@ -92,29 +96,28 @@ library(dplyr)
 # Ensure both layers are in the same CRS
 ais_latlong <- st_transform(ais_latlong, st_crs(shp_lakes))
 
-# Perform a spatial join: attach lake polygons to AIS points
-fins_lakes <- st_join(ais_latlong, shp_lakes, join = st_within)
-
-# Now fins_lakes has all columns from AIS points plus the matching lake polygon columns
-# For plotting, you can highlight only the lakes that have AIS
-fins_lakes_with_ais <- shp_lakes[st_intersects(shp_lakes, ais_latlong, sparse = FALSE)[,1], ]
+#Identify sampled lakes polygons
+# For each lake polygon, check if it contains at least one sampled point
+intersects_matrix <- st_intersects(shp_lakes, ais_latlong, sparse = FALSE)
+fins_lakes <- shp_lakes[rowSums(intersects_matrix) > 0, ]
 
 # Plotting 
 ggplot() +
+  # Base map: Nova Scotia outline
   geom_sf(data = NS_sf, fill = NA, color = "black") +
-  # Optional: show all lakes as outlines
-  geom_sf(data = shp_lakes, fill = NA, color = "darkgrey", size = 0.25, alpha = 0.3) +
+  # All lakes as subtle outlines
+  geom_sf(data = shp_lakes, fill = "lightblue", color = "lightblue", size = 0.1, alpha = 0.2) +
   # Only colour the lakes in FINS dataset
-  geom_sf(data = fins_lakes, fill = "deepskyblue3", color = "deepskyblue4", size = 0.25, alpha = 0.7) +
+  geom_sf(data = fins_lakes, fill = "deepskyblue4", color = "deepskyblue4", size = 0.25, alpha = 0.7) +
   # Add county lines
-  geom_sf(data = shp_county, fill = NA, color = "black", size = 0.1) +
+  geom_sf(data = shp_county, fill = NA, color = "darkgrey", size = 0.1) +
   # Add watershed lines
   geom_sf(data = shp_wshed, fill = NA, color = "lightgrey", size = 0.25, alpha = 0.3) +
-  # Scale map
+  # Scale map to NS
   coord_sf(xlim = c(-66.7, -59.5), 
            ylim = c(43.2, 47)) +
   theme_classic() +
-  labs(title = "Lakes in FINS database",
+  labs(title = "Lakes Sampled in FINS database",
        x = "Longitude",
        y = "Latitude")
 
@@ -122,7 +125,7 @@ ggplot() +
 ggsave("Lakes in FINS.pdf",
        plot = last_plot(),
        device = "pdf",
-       path = "/Users/bethwatson/Documents/eDNA/maps/",
+       path = "Plots",
        scale = 1,
        width = 2000,
        height = 1600,
@@ -130,39 +133,110 @@ ggsave("Lakes in FINS.pdf",
        dpi = 300,
        limitsize = TRUE,
        bg = NULL)
+
+
+# seem to be a discrepancy in number of lakes on the map vs unique lake count
+# in the dataframe itself
+
+# Identify which polygons contain sampled points
+fins_lakes <- shp_lakes[rowSums(intersects_matrix) > 0, ]
+
+# Count total polygons vs sampled polygons
+total_polygons <- nrow(shp_lakes) #17,309
+sampled_polygons <- nrow(fins_lakes) #949
+
+cat("Total lake polygons in shapefile:", total_polygons, "\n")
+cat("Polygons containing sampled points:", sampled_polygons, "\n")
+
+# Compare to unique FINS lakes from CSV
+unique_fins_lakes <- ais_latlong %>%
+  st_drop_geometry() %>%
+  distinct(County, Site.Code, Name, Watershed.Code)
+
+cat("Unique lakes in FINS dataset:", nrow(unique_fins_lakes), "\n")
+
+# Optional - see which FINS lakes do NOT match any polygon
+matched_polygons <- st_intersects(ais_latlong, shp_lakes, sparse = FALSE)
+unmatched_lakes <- unique_fins_lakes[rowSums(matched_polygons) == 0, ]
+cat("Number of FINS lakes not matching any polygon:", nrow(unmatched_lakes), "\n")
+
+
+# yep -- not every lake in FINS has a matching polygon
+
+#need to update everything below this point
 ############ Plot 1 - Smallmouth Bass ############
 ggplot() +
+  # Base map: Nova Scotia outline
   geom_sf(data = NS_sf, fill = NA, color = "black") +
-  geom_sf(data = shp_lakes, color = "deepskyblue4", fill = "deepskyblue3", size = 0.25, alpha = 0.7) +
-  geom_sf(data = shp_county, fill = NA, color = "black", size = 0.5) +
-  geom_sf(data = shp_wshed, fill = NA, color = "darkgreen", size = 0.25, alpha = 0.3) +
-  geom_sf(data = bass_sf, aes(fill = Decade), shape = 21, color = "black", size = 2) +
-  coord_sf(xlim = c(-66.7, -59.5), ylim = c(43.2, 47)) +
+  # All lakes as subtle outlines
+  geom_sf(data = shp_lakes, fill = NA, color = "lightblue", size = 0.1, alpha = 0.2) +
+  # Only colour the lakes in FINS dataset
+  geom_sf(data = fins_lakes, fill = "deepskyblue4", color = "deepskyblue4", size = 0.25, alpha = 0.7) +
+  # Add county lines
+  geom_sf(data = shp_county, fill = NA, color = "darkgrey", size = 0.1) +
+  # Add watershed lines
+  geom_sf(data = shp_wshed, fill = NA, color = "lightgrey", size = 0.25, alpha = 0.3) +
+  # Scale map to NS
+  coord_sf(xlim = c(-66.7, -59.5), 
+           ylim = c(43.2, 47)) +
+  # Add Mido detections
+  geom_sf(data = bass_sf, aes(fill = Decade), color = "black", shape = 21, size = 2) +
+  # Format and titles
   theme_classic() +
-  theme(axis.line = element_line(color = "black"),
-        axis.text = element_text(size = 10),
-        axis.title = element_text(size = 10)) +
-  labs(title = "First Detection of Smallmouth Bass by Decade in NS Lakes",
-       x = "Longitude", y = "Latitude",
-       fill = "Decade")
+  labs(title = "Mido detections per decade in FINS database",
+       x = "Longitude",
+       y = "Latitude")
+
+
+ggsave("Mido detections in FINS.pdf",
+       plot = last_plot(),
+       device = "pdf",
+       path = "Plots",
+       scale = 1,
+       width = 2000,
+       height = 1600,
+       units = c("px"),
+       dpi = 300,
+       limitsize = TRUE,
+       bg = NULL)
+
 
 
 
 ############ Plot 2 - Chain Pickerel ############
 ggplot() +
+  # Base map: Nova Scotia outline
   geom_sf(data = NS_sf, fill = NA, color = "black") +
-  geom_sf(data = shp_lakes, color = "deepskyblue4", fill = "deepskyblue3", size = 0.25, alpha = 0.7) +
-  geom_sf(data = shp_county, fill = NA, color = "black", size = 0.5) +  # county boundaries
-  geom_sf(data = shp_wshed, fill = NA, color = "darkgreen", size = 0.25, alpha = 0.3) + # optional watershed outlines
-  coord_sf(xlim = c(-66.7, -59.5), ylim = c(43.2, 47)) +
-  theme_classic() +
-  theme(axis.line = element_line(color = "black"),
-        axis.text = element_text(size = 10),
-        axis.title = element_text(size = 10)) +
+  # All lakes as subtle outlines
+  geom_sf(data = shp_lakes, fill = NA, color = "lightblue", size = 0.1, alpha = 0.2) +
+  # Only colour the lakes in FINS dataset
+  geom_sf(data = fins_lakes, fill = "deepskyblue4", color = "deepskyblue4", size = 0.25, alpha = 0.7) +
+  # Add county lines
+  geom_sf(data = shp_county, fill = NA, color = "darkgrey", size = 0.1) +
+  # Add watershed lines
+  geom_sf(data = shp_wshed, fill = NA, color = "lightgrey", size = 0.25, alpha = 0.3) +
+  # Scale map to NS
+  coord_sf(xlim = c(-66.7, -59.5), 
+           ylim = c(43.2, 47)) +
+  # Add Esni detections
   geom_sf(data = pickerel_sf, aes(fill = Decade), color = "black", shape = 21, size = 2) +
-  scale_fill_viridis_d() +
-  labs(title = "First Detection of Chain Pickerel by Decade in NS Lakes",
-       x = "Longitude", y = "Latitude",
-       fill = "Decade")
+  # Format and titles
+  theme_classic() +
+  labs(title = "Esni detections per decade in FINS database",
+       x = "Longitude",
+       y = "Latitude")
+
+
+ggsave("Esni detections in FINS.pdf",
+       plot = last_plot(),
+       device = "pdf",
+       path = "Plots",
+       scale = 1,
+       width = 2000,
+       height = 1600,
+       units = c("px"),
+       dpi = 300,
+       limitsize = TRUE,
+       bg = NULL)
 
 
