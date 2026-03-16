@@ -454,17 +454,35 @@ master_community_list <- bind_rows(
 write.csv(master_community_list, "Output/Community_composition_AIS_status_FINS-DEEHR_260315.csv", row.names = FALSE)
 
 ################################################################################
-# 14. GOOGLE EARTH EXPORT (KML)
+# 14. GOOGLE EARTH EXPORT (Separate Files for Easy Coloring)
 ################################################################################
 library(sf)
 
-# Clean up for KML (KML doesn't like dots in column names)
-kml_export <- ais_final_master %>%
+# 1. Prep the data
+kml_prep <- ais_final_master %>%
   filter(!is.na(Longitude) & !is.na(Latitude)) %>%
-  select(Name, County, Site.Code, Lake_AIS_Status, Longitude, Latitude)
+  mutate(Description = paste0("County: ", County, 
+                              "<br>Site Code: ", Site.Code, 
+                              "<br>Last Sampled: ", Lake_Last_Sampled_Year)) %>%
+  select(Name, Description, Lake_AIS_Status, Longitude, Latitude)
 
-# Create the spatial object
-ais_sf <- st_as_sf(kml_export, coords = c("Longitude", "Latitude"), crs = 4326)
+# 2. Get unique statuses
+statuses <- unique(kml_prep$Lake_AIS_Status)
 
-# Export
-st_write(ais_sf, "Output/NS_AIS_Lakes_Status.kml", driver = "kml", append = FALSE)
+# 3. Loop through and write a separate file for each status
+for (s in statuses) {
+  # Create a subset for this specific status
+  subset_sf <- kml_prep %>% 
+    filter(Lake_AIS_Status == s) %>%
+    st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326)
+  
+  # Clean the status name for a safe filename (replaces spaces/slashes with underscores)
+  file_name <- str_replace_all(s, "[^[:alnum:]]", "_")
+  kml_path <- paste0("Output/AIS_", file_name, ".kml")
+  
+  # Delete if it exists so we start fresh
+  if(file.exists(kml_path)) file.remove(kml_path)
+  
+  # Write the file using the basic KML driver
+  st_write(subset_sf, dsn = kml_path, driver = "kml", delete_dsn = TRUE)
+}
